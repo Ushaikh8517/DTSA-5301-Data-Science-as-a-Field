@@ -1,0 +1,227 @@
+---
+title: "Data Analysis Report on NYPD Shooting Incident"
+author: "Umair Shaikh"
+date: "2023-12-10"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+## Introduction
+
+This study looks at NYPD's data on shooting incidents to understand who's most affected by gun violence in New York City. I explore details like where these shootings often happen, if they're deadly, and who the victims and perpetrators usually are, in terms of their age.
+
+My aim is to figure out who is at greater risk of being involved in these incidents, find out where in the city gun violence is most common, and see at what times these shootings typically occur.
+
+By understanding these patterns, I hope to help direct police, community help, and medical aid to the people and places that need them most.
+
+## Data Source
+
+Data is in csv format from this site: <https://catalog.data.gov/dataset?q=NYPD+Shooting+Incident+Data+%28Historic%29&sort=views_recent+desc&ext_location=&ext_bbox=&ext_prev_extent=>
+
+## Required Libraries 
+```{r setup, message=FALSE, warning=FALSE}
+# Load required libraries
+library(tidyr)
+library(dplyr)
+library(ggplot2)
+library(viridis)
+library(lubridate)
+library(tidymodels)
+```
+
+## Load and Summarize Data 
+
+```{r import data}
+# Load the data set directly from the URL
+nypd_data <- read.csv("https://data.cityofnewyork.us/api/views/833y-fsy8/rows.csv?accessType=DOWNLOAD")
+
+# Display the first few rows
+head(nypd_data)
+#Generate Summary Statistics of the data set
+summary(nypd_data)
+```
+## Brief Overview of Structure:
+
+* INCIDENT_KEY: A unique identifier for each incident.
+* OCCUR_DATE: The date of the incident.
+* OCCUR_TIME: The time of the incident.
+* BORO: Borough where the incident occurred.
+* LOC_OF_OCCUR_DESC: Description of the location of occurrence (if available).
+* PRECINCT: NYPD precinct where the incident occurred.
+* JURISDICTION_CODE: Jurisdiction code.
+* LOC_CLASSFCTN_DESC: Classification description of the location (if available).
+* LOCATION_DESC: Detailed description of the location (if available).
+* STATISTICAL_MURDER_FLAG: Indicates if the incident was a statistical murder.
+* PERP_AGE_GROUP: Age group of the perpetrator (if known).
+* PERP_SEX: Sex of the perpetrator (if known).
+* PERP_RACE: Race of the perpetrator (if known).
+* VIC_AGE_GROUP: Age group of the victim.
+* VIC_SEX: Sex of the victim.
+* VIC_RACE: Race of the victim.
+* X_COORD_CD, Y_COORD_CD: X and Y coordinates of the incident location.
+* Latitude, Longitude: Geographical coordinates of the incident.
+* Lon_Lat: Combined longitude and latitude in a point format.
+
+```{r data cleaning}
+# Convert 'OCCUR_DATE' and 'OCCUR_TIME' columns
+nypd_data <- nypd_data %>%
+  mutate(OCCUR_DATE = mdy(OCCUR_DATE),
+         OCCUR_TIME = hms(OCCUR_TIME))
+
+# Drop irrelevant columns
+columns_to_drop <- c("LOC_OF_OCCUR_DESC", "LOC_CLASSFCTN_DESC", "LOCATION_DESC", "Lon_Lat")
+nypd_data <- nypd_data %>%
+  select(-all_of(columns_to_drop))
+
+# Replace missing values with 'Unknown' in specific columns
+nypd_data <- nypd_data %>%
+  mutate(PERP_AGE_GROUP = replace_na(PERP_AGE_GROUP, "Unknown"),
+         PERP_SEX = replace_na(PERP_SEX, "Unknown"),
+         PERP_RACE = replace_na(PERP_RACE, "Unknown"))
+
+# Remove rows with missing values in 'JURISDICTION_CODE', 'Latitude', and 'Longitude'
+nypd_data <- nypd_data %>%
+  drop_na(JURISDICTION_CODE, Latitude, Longitude)
+head(nypd_data)
+# Summary of the cleaned dataset
+summary(nypd_data)
+```
+## Analyze and Visualize Data
+
+Insightful visualizations I considered:
+
+1) Perpetrator and Victim Demographics:
+This involves creating bar charts comparing the age of perpetrators and victims. This visualization can provide insights into the demographics of those involved in shooting incidents
+
+2) Time of Day Incidents:
+Analyzing the time of day when shootings occur most frequently can provide insights into when these incidents are more likely to happen. This involves a histogram showing the number of incidents by hour of the day.
+
+3) Number of Shooting Incidents Over Time (Yearly): This bar chart shows the annual number of shooting incidents. It provides a clear view of how the frequency of incidents has changed over the years, highlighting any trends, such as increases or decreases in shooting incidents.
+
+4) Distribution of Incidents Across Boroughs: This bar chart displays the distribution of shooting incidents across different boroughs. It helps in understanding which boroughs have higher incidences of shootings, potentially indicating areas with higher crime rates.
+
+```{r visualizations}
+# Age Group Distribution
+
+# Check unique values of VIC_AGE_GROUP
+unique(nypd_data$VIC_AGE_GROUP)
+
+# Redo the age groups (Assuming 1022 was meant to be 18-24 and 224 was meant to be 25-44)
+nypd_data <- nypd_data %>%
+  mutate(VIC_AGE_GROUP = case_when(
+    VIC_AGE_GROUP == "1022" ~ "18-24",
+    VIC_AGE_GROUP == "224"  ~ "25-44",
+    TRUE                    ~ as.character(VIC_AGE_GROUP)
+  ))
+
+# Convert to a factor
+nypd_data$VIC_AGE_GROUP <- factor(nypd_data$VIC_AGE_GROUP, 
+                                  levels = c("<18", "18-24", "25-44", "45-64", "65+", "UNKNOWN"))
+nypd_data$PERP_AGE_GROUP <- factor(nypd_data$PERP_AGE_GROUP, 
+                                   levels = c("<18", "18-24", "25-44", "45-64", "65+", "UNKNOWN"))
+# Generate the plot
+ggplot(nypd_data, aes(x = VIC_AGE_GROUP, fill = PERP_AGE_GROUP)) +
+  geom_bar(position = "dodge") +
+  labs(title = "Age Group Distribution of Victims and Perpetrators",
+       x = "Victim Age Group",
+       y = "Number of Incidents") +
+  scale_fill_brewer(palette = "Set1")
+
+# Shooting Incidents by Time of Day
+nypd_data %>%
+  mutate(hour = hour(OCCUR_TIME)) %>%
+  count(hour) %>%
+  ggplot(aes(x = hour, y = n)) +
+  geom_bar(stat = "identity", fill = "tomato") +
+  labs(title = "Shooting Incidents by Time of Day", x = "Hour of the Day", y = "Number of Incidents")
+
+# Number of Shooting Incidents Over Time (Yearly)
+nypd_data %>%
+  count(Year = year(OCCUR_DATE)) %>%
+  ggplot(aes(x = Year, y = n)) +
+  geom_bar(stat = "identity", fill = "skyblue") +
+  labs(title = "Number of Shooting Incidents Over Time (Yearly)", x = "Year", y = "Number of Incidents")
+
+# Distribution of Incidents Across Boroughs
+nypd_data %>%
+  count(BORO) %>%
+  ggplot(aes(x = reorder(BORO, n), y = n, fill = BORO)) +
+  geom_bar(stat = "identity") +
+  scale_fill_viridis_d() +
+  labs(title = "Distribution of Shooting Incidents Across Boroughs", 
+       x = "Borough", 
+       y = "Number of Incidents") +
+  coord_flip()
+```
+
+## Logistic Regression Model
+
+I built a logistic regression model to predict the likelihood of a shooting being fatal based on various factors (e.g., borough, time of day, demographics).
+
+```{r logistic_regression_model, message=FALSE, warning=FALSE}
+# Select columns for the model
+model_data <- nypd_data %>%
+  select(
+    STATISTICAL_MURDER_FLAG, 
+    VIC_AGE_GROUP,           
+    BORO,                    
+    PERP_RACE,               
+    PERP_SEX                 
+  ) 
+
+# Filter out rows with missing data in any of the selected columns
+model_data <- model_data %>%
+  filter(
+    !is.na(STATISTICAL_MURDER_FLAG),
+    !is.na(VIC_AGE_GROUP),
+    !is.na(PERP_SEX),
+    !is.na(PERP_RACE)
+  )
+
+# Convert the outcome variable to a factor
+model_data$STATISTICAL_MURDER_FLAG <- as.factor(model_data$STATISTICAL_MURDER_FLAG)
+
+# Split the data into training and testing sets (80% training, 20% testing)
+set.seed(456)
+data_split <- initial_split(model_data, prop = 0.8)
+train_data <- training(data_split)
+test_data <- testing(data_split)
+
+# Logistic Regression Model
+model <- logistic_reg() %>%
+         set_engine("glm") %>%
+         fit(STATISTICAL_MURDER_FLAG ~ BORO + VIC_AGE_GROUP + PERP_SEX + PERP_RACE, data = train_data)
+
+# Make predictions on the test set
+predictions <- predict(model, test_data, type = "class")
+
+# Bind the predictions to the testing set
+results <- bind_cols(test_data, predictions)
+
+# Evaluate the model (e.g., using accuracy)
+accuracy <- results %>%
+            metrics(truth = STATISTICAL_MURDER_FLAG, estimate = .pred_class) %>%
+            filter(.metric == "accuracy") %>%
+            pull(.estimate) * 100
+
+print(paste("Accuracy:", accuracy, "%"))
+```
+
+## Conclusions from the NYPD Shooting Incident Data
+
+This analysis showed peaks in shooting incidents during certain times of the day, which could indicate patterns in criminal activity. For instance, higher incident rates at night might suggest a need for increased night patrols or community interventions during these hours.
+
+By examining the victims and perpetrators age groups, we might identify a specific pattern of demographic groups that are more frequently involved in shootings. This could point towards underlying social or economic issues that need addressing, such as youth involvement in violence.
+
+Also, certain boroughs showed higher rates of shooting incidents, and these areas could be identified as hotspots. This suggests a need for targeted interventions in these areas, such as community-based programs, increased policing, or social services.
+
+Over time, if there are trends showing increases or decreases in shooting incidents, these could possibly be correlated with changes in law enforcement strategies, community programs, or social issues.
+
+## Identifying Possible Bias
+
+The dataset may not capture all incidents, especially if there are cases of underreporting or misclassification.There could be biases in how incidents are reported or recorded, potentially influenced by the victim's or perpetrator's demographic characteristics.
+
+**Personal Bias** 
+
+I myself don't have any personal assumption on this data set and the data analyst approach should not have any expectations ingrained about patterns. This helps to avoid biased interpretation of the data.
